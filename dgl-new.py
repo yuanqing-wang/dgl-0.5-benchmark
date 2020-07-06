@@ -19,7 +19,7 @@ def bench_spmm(csvfile, g, ctx, binary_op, reduce_op):
                 accum_time = 0
                 for n_times in range(10):
                     with th_op_time() as timer:
-                        dgl.sparse.gspmm(g, binary_op, reduce_op, nfeat, efeat)
+                        dgl.sparse._gspmm(g._graph, binary_op, reduce_op, nfeat, efeat)
                     if n_times >= n_cold_start:
                         accum_time += timer.time
                 avg_time = accum_time / (n_times - n_cold_start)
@@ -41,7 +41,7 @@ def bench_sddmm(csvfile, g, ctx, op):
                 accum_time = 0
                 for n_times in range(10):
                     with th_op_time() as timer:
-                        dgl.sparse.gsddmm(g, op, ufeat, vfeat)
+                        dgl.sparse._gsddmm(g._graph, op, ufeat, vfeat)
                     if n_times >= n_cold_start:
                         accum_time += timer.time
                 avg_time = accum_time / (n_times - n_cold_start)
