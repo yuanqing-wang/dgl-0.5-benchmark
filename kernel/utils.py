@@ -3,7 +3,7 @@ import dgl
 import time
 import dgl.data
 from ogb.nodeproppred import DglNodePropPredDataset
-from torch_sparse import SparseTensor
+# from torch_sparse import SparseTensor
 
 binary_op_dict = {
     'add': lambda x, y: x + y,
@@ -32,6 +32,14 @@ class th_op_time(object):
             self.time = self.start_event.elapsed_time(self.end_event) / 1e3
         else:
             self.time = time.time() - self.tic
+
+class op_time(object):
+    def __enter__(self):
+        self.tic = time.time()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.time = time.time() - self.tic
 
 
 def homo_to_hetero(g):

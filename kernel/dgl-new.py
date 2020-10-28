@@ -1,7 +1,7 @@
 import dgl
 import dgl.ops
 import torch as th
-from utils import th_op_time, get_graph
+from utils import op_time, get_graph
 
 import argparse
 
@@ -16,7 +16,7 @@ def bench_spmm(g, ctx, binary_op, reduce_op):
                 efeat = th.rand(g.number_of_edges(), n_hid, device=ctx) if binary_op != 'copy_lhs' else None
                 accum_time = 0
                 for n_times in range(10):
-                    with th_op_time() as timer:
+                    with op_time() as timer:
                         dgl.ops.gspmm(g, binary_op, reduce_op, nfeat, efeat)
                     if n_times >= n_cold_start:
                         accum_time += timer.time
@@ -35,7 +35,7 @@ def bench_sddmm(g, ctx, op):
                 vfeat = th.rand(g.number_of_dst_nodes(), n_hid, device=ctx)
                 accum_time = 0
                 for n_times in range(10):
-                    with th_op_time() as timer:
+                    with op_time() as timer:
                         dgl.ops.gsddmm(g, op, ufeat, vfeat)
                     if n_times >= n_cold_start:
                         accum_time += timer.time
