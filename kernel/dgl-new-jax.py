@@ -19,7 +19,7 @@ def bench_spmm(g, ctx, binary_op, reduce_op):
             accum_time = 0
             for n_times in range(10):
                 with op_time() as timer:
-                    dgl.ops.gspmm(g, binary_op, reduce_op, nfeat, efeat)
+                    dgl.ops.gspmm(g, binary_op, reduce_op, nfeat, efeat).block_until_ready()
                 if n_times >= n_cold_start:
                     accum_time += timer.time
             avg_time = accum_time / (n_times - n_cold_start)

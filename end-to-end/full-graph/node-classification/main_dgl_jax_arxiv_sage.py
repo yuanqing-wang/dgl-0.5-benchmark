@@ -75,14 +75,17 @@ class GraphSAGE(nn.Module):
 
 def train(model, g, feats, y_true, train_idx, optimizer):
     # optimizer.zero_grad()
-    def loss_fn(model):
+    def loss_fn(model, y_true=y_true):
         out = model(g, feats)[train_idx]
-        y_true = jnp.squeeze(y_true, 1)[train_idx]
+        y_true = y_true[train_idx]
         loss = jnp.mean(out * y_true)
         return loss
 
-    grad = jax.jacfwd(loss_fn)(optimizer.target)
-    loss = loss_fn(optimizer.target)
+    # grad = jax.jacfwd(loss_fn)(optimizer.target)
+    # loss = loss_fn(optimizer.target)
+
+    loss, grad = jax.value_and_grad(loss_fn)(optimizer.target)
+
     optimizer = optimizer.apply_gradient(grad)
     return optimizer, loss
 
