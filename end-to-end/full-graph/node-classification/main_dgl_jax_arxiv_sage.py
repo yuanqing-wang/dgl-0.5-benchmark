@@ -49,10 +49,13 @@ class SAGEConv(nn.Module):
             feat_src, feat_dst = feat
         else:
             feat_src = feat_dst = feat
-
         h_self = feat_dst
+       
+        if isinstance(feat_src, jax.interpreters.ad.JVPTracer):
+            graph = graph.cpu()
 
         graph.srcdata['h'] = feat_src
+
         graph.update_all(fn.copy_src('h', 'm'), fn.mean('m', 'neigh'))
         h_neigh = graph.dstdata['neigh']
         rst = nn.Dense(h_self, out_feats) + nn.Dense(h_neigh, out_feats)
@@ -74,17 +77,23 @@ class GraphSAGE(nn.Module):
         return jax.nn.log_softmax(x, axis=-1)
 
 def train(model, g, feats, y_true, train_idx, optimizer):
-    # optimizer.zero_grad()
+    g = g.to(jax.devices('gpu')[0])
     def loss_fn(model, y_true=y_true):
         out = model(g, feats)[train_idx]
-        y_true = y_true[train_idx]
-        loss = jnp.mean(out * y_true)
+        y_true = y_true[train_idx].flatten()
+
+        print(out.shape)
+        print(y_true.shape)
+
+        y_true = jax.nn.one_hot(y_true, 40)
+        loss = jnp.mean(-out * y_true)
         return loss
 
     # grad = jax.jacfwd(loss_fn)(optimizer.target)
     # loss = loss_fn(optimizer.target)
 
     loss, grad = jax.value_and_grad(loss_fn)(optimizer.target)
+    print(loss)
 
     optimizer = optimizer.apply_gradient(grad)
     return optimizer, loss
@@ -129,9 +138,16 @@ def main():
     split_idx = dataset.get_idx_split()
 
     g, labels = dataset[0]
-    feats = g.ndata['feat']
+    feats = jax.device_put(
+            g.ndata['feat'],
+            jax.devices("gpu")[0]
+    )
+
+    g = g.to(jax.devices("cpu")[0])
+
     g = dgl.to_bidirected(g)
     g = g.int()
+    g = g.to(jax.devices("gpu")[0])
 
     train_idx = split_idx['train'].numpy()
 
