@@ -180,6 +180,7 @@ def main():
         for epoch in range(1, 1 + args.epochs):
             t0 = time.time()
             loss = train(model, g, feats, labels, train_idx, optimizer)
+            print(loss)
             if epoch >= 3:
                 dur.append(time.time() - t0)
                 print('Training time/epoch {}'.format(np.mean(dur)))

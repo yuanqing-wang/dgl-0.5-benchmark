@@ -7,7 +7,7 @@ import jax
 from jax import numpy as jnp
 import flax
 import flax.nn as nn
-
+from functools import partial
 from dgl.utils import expand_as_pair
 from ogb.nodeproppred import DglNodePropPredDataset, Evaluator
 
@@ -76,8 +76,10 @@ class GraphSAGE(nn.Module):
 
         return jax.nn.log_softmax(x, axis=-1)
 
+
+# @partial(jax.jit, static_argnums=(1, ))
 def train(model, g, feats, y_true, train_idx, optimizer):
-    g = g.to(jax.devices('gpu')[0])
+    g = g.to(jax.devices()[0])
     def loss_fn(model, y_true=y_true):
         out = model(g, feats)[train_idx]
         y_true = y_true[train_idx].flatten()
@@ -140,14 +142,14 @@ def main():
     g, labels = dataset[0]
     feats = jax.device_put(
             g.ndata['feat'],
-            jax.devices("gpu")[0]
+            jax.devices()[0]
     )
 
     g = g.to(jax.devices("cpu")[0])
 
     g = dgl.to_bidirected(g)
     g = g.int()
-    g = g.to(jax.devices("gpu")[0])
+    g = g.to(jax.devices()[0])
 
     train_idx = split_idx['train'].numpy()
 
