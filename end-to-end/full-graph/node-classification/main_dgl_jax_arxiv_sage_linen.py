@@ -6,7 +6,7 @@ import time
 import jax
 from jax import numpy as jnp
 import flax
-import flax.nn as nn
+import flax.linen as nn
 from functools import partial
 from dgl.utils import expand_as_pair
 from ogb.nodeproppred import DglNodePropPredDataset, Evaluator
@@ -14,17 +14,16 @@ from ogb.nodeproppred import DglNodePropPredDataset, Evaluator
 from utils import Logger
 
 class SAGEConv(nn.Module):
-    def __init__(self,
-                 in_feats,
-                 out_feats):
-        super(SAGEConv, self).__init__()
+    in_feats: int
+    out_feats: int
 
-        self._in_src_feats, self._in_dst_feats = expand_as_pair(in_feats)
-        self._out_feats = out_feats
-        self.fc_self = nn.Linear(self._in_dst_feats, out_feats, bias=False)
-        self.fc_neigh = nn.Linear(self._in_src_feats, out_feats)
+    def setup(self):
+        self._in_src_feats, self._in_dst_feats = expand_as_pair(self.in_feats)
+        self._out_feats = self.out_feats
+        self.fc_self = nn.Dense(self.out_feats, use_bias=False)
+        self.fc_neigh = nn.Dense(self.out_feats)
 
-    def apply(self, graph, feat, in_feats, out_feats):
+    def __call__(self, graph, feat):
         r"""Compute GraphSAGE layer.
 
         Parameters
@@ -58,36 +57,40 @@ class SAGEConv(nn.Module):
 
         graph.update_all(fn.copy_src('h', 'm'), fn.mean('m', 'neigh'))
         h_neigh = graph.dstdata['neigh']
-        rst = nn.Dense(h_self, out_feats) + nn.Dense(h_neigh, out_feats)
+        rst = self.fc_self(h_self) + self.fc_neigh(h_neigh)
 
         return rst
 
 class GraphSAGE(nn.Module):
-    def apply(self, g, x, in_feats, hidden_feats, out_feats, num_layers, dropout):
-        with nn.stochastic(jax.random.PRNGKey(0)):
-            x = SAGEConv(g, x, in_feats, hidden_feats)
+    in_feats: int
+    hidden_feats: int
+    out_feats: int
+    num_layers: int
+    dropout: float = 0.0
 
-            for idx in range(num_layers-2):
-                x = SAGEConv(g, x, hidden_feats, hidden_feats)
-                x = nn.BatchNorm(x)
-                x = nn.dropout(x, rate=dropout)
+    @nn.compact
+    def __call__(self, g, x):
 
-            x = SAGEConv(g, x, hidden_feats, out_feats)
+        x = SAGEConv(self.in_feats, self.hidden_feats)(g, x)
+
+        for idx in range(self.num_layers-2):
+            x = SAGEConv(self.hidden_feats, self.hidden_feats)(g, x)
+            # x = nn.BatchNorm()(x)
+            # x = nn.Dropout(self.dropout)(x)
+            x = flax.nn.dropout(x, self.dropout, rng=jax.random.PRNGKey(0))
+
+        x = SAGEConv(self.in_feats, self.out_feats)(g, x)
 
         return jax.nn.log_softmax(x, axis=-1)
-
 
 # @partial(jax.jit, static_argnums=(1, ))
 def train(model, g, feats, y_true, train_idx, optimizer):
     g = g.to(jax.devices()[0])
 
     @jax.jit
-    def loss_fn(model, y_true=y_true):
-        out = model(g, feats)[train_idx]
+    def loss_fn(param, y_true=y_true):
+        out = model.apply(param, g, feats)[train_idx]
         y_true = y_true[train_idx].flatten()
-
-        print(out.shape)
-        print(y_true.shape)
 
         y_true = jax.nn.one_hot(y_true, 40)
         loss = jnp.mean(-out * y_true)
@@ -97,7 +100,6 @@ def train(model, g, feats, y_true, train_idx, optimizer):
     # loss = loss_fn(optimizer.target)
 
     loss, grad = jax.value_and_grad(loss_fn)(optimizer.target)
-    print(loss)
 
     optimizer = optimizer.apply_gradient(grad)
     return optimizer, loss
@@ -155,26 +157,23 @@ def main():
 
     train_idx = split_idx['train'].numpy()
 
-    _model = GraphSAGE.partial(in_feats=feats.shape[-1],
+    model = GraphSAGE(in_feats=feats.shape[-1],
                       hidden_feats=args.hidden_channels,
                       out_feats=dataset.num_classes,
                       num_layers=args.num_layers,
                       dropout=args.dropout)
-
-    _, initial_params = _model.init(jax.random.PRNGKey(0), g, feats)
-    model = nn.Model(_model, initial_params)
 
     evaluator = Evaluator(name='ogbn-arxiv')
     logger = Logger(args.runs, args)
 
     dur = []
     for run in range(args.runs):
-        _, initial_params = _model.init(jax.random.PRNGKey(0), g, feats)
-        model = nn.Model(_model, initial_params)
-        optimizer = flax.optim.Adam(args.lr).create(model)
+        initial_params = model.init(jax.random.PRNGKey(0), g, feats)
+        optimizer = flax.optim.Adam(args.lr).create(initial_params)
         for epoch in range(1, 1 + args.epochs):
             t0 = time.time()
             optimizer, loss = train(model, g, feats, labels, train_idx, optimizer)
+            print(loss)
             if epoch >= 3:
                 dur.append(time.time() - t0)
                 print('Training time/epoch {}'.format(np.mean(dur)))
